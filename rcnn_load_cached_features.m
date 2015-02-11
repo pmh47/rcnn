@@ -1,7 +1,7 @@
-function d = rcnn_load_cached_pool5_features(cache_name, imdb_name, id)
-% d = rcnn_load_cached_pool5_features(cache_name, imdb_name, id)
-%   loads cached pool5 features from:
-%   feat_cache/[cache_name]/[imdb_name]/[id].mat
+function d = rcnn_load_cached_features(cache_name, layer_name, imdb_name, id)
+% d = rcnn_load_cached_features(cache_name, imdb_name, id)
+%   loads cached pool5/fcX features from:
+%   feat_cache/[cache_name]/[imdb_name]/[layer_name]/[id].mat
 
 % AUTORIGHTS
 % ---------------------------------------------------------
@@ -13,8 +13,7 @@ function d = rcnn_load_cached_pool5_features(cache_name, imdb_name, id)
 % this file (or any portion of it) in your project.
 % ---------------------------------------------------------
 
-
-file = sprintf('./feat_cache/%s/%s/%s', cache_name, imdb_name, id);
+file = sprintf('./feat_cache/%s/%s/%s/%s', cache_name, imdb_name, layer_name, id);
 
 if exist([file '.mat'], 'file')
   d = load(file);

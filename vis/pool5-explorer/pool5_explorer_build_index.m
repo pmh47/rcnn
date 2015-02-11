@@ -50,7 +50,7 @@ catch
   for i = 1:length(ids)
     tic_toc_print('%d/%d', i, length(ids));
     th = tic();
-    d = rcnn_load_cached_pool5_features(cache_name, ...
+    d = rcnn_load_cached_features(cache_name, ...
         imdb.name, ids{i});
 
     feat = d.feat;
@@ -59,7 +59,7 @@ catch
       threshold = min(features{f}.scores);
       if isempty(threshold)
         threshold = -inf;
-      end
+	  end
       sel_0 = find(feat(:,f) > threshold);
       if isempty(sel_0)
         continue;

@@ -60,12 +60,13 @@ catch
     for i = folds{f}
       count = count + 1;
       fprintf('%s: test (%s) %d/%d\n', procid(), imdb.name, count, length(image_ids));
-      d = rcnn_load_cached_pool5_features(feat_opts.cache_name, ...
+      d = rcnn_load_cached_features(feat_opts.cache_name, feat_opts.cached_layer, ...
           imdb.name, image_ids{i});
       if isempty(d.feat)
         continue;
-      end
-      d.feat = rcnn_pool5_to_fcX(d.feat, feat_opts.layer, rcnn_model);
+	  end
+	  
+      d.feat = rcnn_cached_to_fcX(d.feat, feat_opts, rcnn_model);
       d.feat = rcnn_scale_features(d.feat, feat_opts.feat_norm_mean);
       zs = bsxfun(@plus, d.feat*rcnn_model.detectors(f).W, rcnn_model.detectors(f).B);
 

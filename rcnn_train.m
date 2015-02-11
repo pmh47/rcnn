@@ -1,5 +1,5 @@
-function [rcnn_model, rcnn_k_fold_model] = ...
-    rcnn_train(imdb, varargin)
+function [rcnn_model, rcnn_k_fold_model] = rcnn_train(imdb, varargin)
+
 % [rcnn_model, rcnn_k_fold_model] = rcnn_train(imdb, varargin)
 %   Trains an R-CNN detector for all classes in the imdb.
 %   
@@ -15,6 +15,8 @@ function [rcnn_model, rcnn_k_fold_model] = ...
 %   crop_padding      Amount of padding in crop
 %   net_file          Path to the Caffe CNN to use
 %   cache_name        Path to the precomputed feature cache
+%   cached_layer       Name of the layer (pool5/fc6/fc7) available in the cache
+%   required_class_ids   Row array of class ids that we want to train on
 
 % AUTORIGHTS
 % ---------------------------------------------------------
@@ -25,9 +27,6 @@ function [rcnn_model, rcnn_k_fold_model] = ...
 % LICENSE. Please retain this notice and LICENSE if you use 
 % this file (or any portion of it) in your project.
 % ---------------------------------------------------------
-
-% TODO:
-%  - allow training just a subset of classes
 
 ip = inputParser;
 ip.addRequired('imdb', @isstruct);
@@ -44,7 +43,8 @@ ip.addParamValue('net_file', ...
     @isstr);
 ip.addParamValue('cache_name', ...
     'v1_finetune_voc_2007_trainval_iter_70000', @isstr);
-
+ip.addParamValue('cached_layer', 'pool5', @isstr);
+ip.addParamValue('required_class_ids', imdb.class_ids);
 
 ip.parse(imdb, varargin{:});
 opts = ip.Results;
@@ -75,30 +75,21 @@ rcnn_model.classes = imdb.classes;
 
 % ------------------------------------------------------------------------
 % Get the average norm of the features
-opts.feat_norm_mean = rcnn_feature_stats(imdb, opts.layer, rcnn_model);
+opts.feat_norm_mean = rcnn_feature_stats(imdb, opts, rcnn_model);
 fprintf('average norm = %.3f\n', opts.feat_norm_mean);
 rcnn_model.training_opts = opts;
 % ------------------------------------------------------------------------
 
 % ------------------------------------------------------------------------
 % Get all positive examples
-% We cache only the pool5 features and convert them on-the-fly to
-% fc6 or fc7 as required
-save_file = sprintf('./feat_cache/%s/%s/gt_pos_layer_5_cache.mat', ...
-    rcnn_model.cache_name, imdb.name);
-try
-  load(save_file);
-  fprintf('Loaded saved positives from ground truth boxes\n');
-catch
-  [X_pos, keys_pos] = get_positive_pool5_features(imdb, opts);
-  save(save_file, 'X_pos', 'keys_pos', '-v7.3');
-end
+[X_pos, keys_pos] = rcnn_get_positive_gt_features(imdb, rcnn_model.cache_name, opts.cached_layer);
+
 % Init training caches
 caches = {};
-for i = imdb.class_ids
+for i = opts.required_class_ids
   fprintf('%14s has %6d positive instances\n', ...
       imdb.classes{i}, size(X_pos{i},1));
-  X_pos{i} = rcnn_pool5_to_fcX(X_pos{i}, opts.layer, rcnn_model);
+  X_pos{i} = rcnn_cached_to_fcX(X_pos{i}, opts, rcnn_model);
   X_pos{i} = rcnn_scale_features(X_pos{i}, opts.feat_norm_mean);
   caches{i} = init_cache(X_pos{i}, keys_pos{i});
 end
@@ -122,7 +113,7 @@ for hard_epoch = 1:max_hard_epochs
 
     % Add sampled negatives to each classes training cache, removing
     % duplicates
-    for j = imdb.class_ids
+    for j = opts.required_class_ids
       if ~isempty(keys{j})
         if ~isempty(caches{j}.keys_neg)
           [~, ~, dups] = intersect(caches{j}.keys_neg, keys{j}, 'rows');
@@ -197,7 +188,7 @@ save([conf.cache_dir 'rcnn_model'], 'rcnn_model');
 % ------------------------------------------------------------------------
 if opts.k_folds > 0
   rcnn_k_fold_model = rcnn_model;
-  [W, B, folds] = update_model_k_fold(rcnn_model, caches, imdb);
+  [W, B, folds] = update_model_k_fold(rcnn_model, caches, imdb, opts.required_class_ids);
   rcnn_k_fold_model.folds = folds;
   for f = 1:length(folds)
     rcnn_k_fold_model.detectors(f).W = W{f};
@@ -216,10 +207,10 @@ function [X_neg, keys] = sample_negative_features(first_time, rcnn_model, ...
 % ------------------------------------------------------------------------
 opts = rcnn_model.training_opts;
 
-d = rcnn_load_cached_pool5_features(opts.cache_name, ...
+d = rcnn_load_cached_features(opts.cache_name, opts.cached_layer, ...
     imdb.name, imdb.image_ids{ind});
 
-class_ids = imdb.class_ids;
+class_ids = opts.required_class_ids;
 
 if isempty(d.feat)
   X_neg = cell(max(class_ids), 1);
@@ -227,7 +218,7 @@ if isempty(d.feat)
   return;
 end
 
-d.feat = rcnn_pool5_to_fcX(d.feat, opts.layer, rcnn_model);
+d.feat = rcnn_cached_to_fcX(d.feat, opts, rcnn_model);
 d.feat = rcnn_scale_features(d.feat, opts.feat_norm_mean);
 
 neg_ovr_thresh = 0.3;
@@ -304,7 +295,7 @@ end
 
 
 % ------------------------------------------------------------------------
-function [W, B, folds] = update_model_k_fold(rcnn_model, caches, imdb)
+function [W, B, folds] = update_model_k_fold(rcnn_model, caches, imdb, required_class_ids)
 % ------------------------------------------------------------------------
 opts = rcnn_model.training_opts;
 num_images = length(imdb.image_ids);
@@ -313,7 +304,7 @@ W = cell(opts.k_folds, 1);
 B = cell(opts.k_folds, 1);
 
 fprintf('Training k-fold models\n');
-for i = imdb.class_ids
+for i = required_class_ids
   fprintf('\n\n~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n');
   fprintf('Training folds for class %s\n', imdb.classes{i});
   fprintf('~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n\n');
@@ -336,33 +327,6 @@ neg_inds = find(ismember(cache.keys_neg(:,1), fold) == false);
 
 
 % ------------------------------------------------------------------------
-function [X_pos, keys] = get_positive_pool5_features(imdb, opts)
-% ------------------------------------------------------------------------
-X_pos = cell(max(imdb.class_ids), 1);
-keys = cell(max(imdb.class_ids), 1);
-
-for i = 1:length(imdb.image_ids)
-  tic_toc_print('%s: pos features %d/%d\n', ...
-                procid(), i, length(imdb.image_ids));
-
-  d = rcnn_load_cached_pool5_features(opts.cache_name, ...
-      imdb.name, imdb.image_ids{i});
-
-  for j = imdb.class_ids
-    if isempty(X_pos{j})
-      X_pos{j} = single([]);
-      keys{j} = [];
-    end
-    sel = find(d.class == j);
-    if ~isempty(sel)
-      X_pos{j} = cat(1, X_pos{j}, d.feat(sel,:));
-      keys{j} = cat(1, keys{j}, [i*ones(length(sel),1) sel]);
-    end
-  end
-end
-
-
-% ------------------------------------------------------------------------
 function cache = init_cache(X_pos, keys_pos)
 % ------------------------------------------------------------------------
 cache.X_pos = X_pos;
@@ -377,3 +341,5 @@ cache.pos_loss = [];
 cache.neg_loss = [];
 cache.reg_loss = [];
 cache.tot_loss = [];
+
+

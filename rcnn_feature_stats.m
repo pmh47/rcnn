@@ -1,4 +1,4 @@
-function [mean_norm, stdd] = rcnn_feature_stats(imdb, layer, rcnn_model)
+function [mean_norm, stdd] = rcnn_feature_stats(imdb, opts, rcnn_model)
 % AUTORIGHTS
 % ---------------------------------------------------------
 % Copyright (c) 2014, Ross Girshick
@@ -11,7 +11,7 @@ function [mean_norm, stdd] = rcnn_feature_stats(imdb, layer, rcnn_model)
 
 conf = rcnn_config('sub_dir', imdb.name);
 save_file = sprintf('%s/feature_stats_%s_layer_%d_%s.mat', ...
-                    conf.cache_dir, imdb.name, layer, rcnn_model.cache_name);
+                    conf.cache_dir, imdb.name, opts.layer, rcnn_model.cache_name);
 
 try
   ld = load(save_file);
@@ -33,11 +33,11 @@ catch
   for i = 1:length(image_ids)
     tic_toc_print('feature stats: %d/%d\n', i, length(image_ids));
 
-    d = rcnn_load_cached_pool5_features(rcnn_model.cache_name, ...
+    d = rcnn_load_cached_features(rcnn_model.cache_name, opts.cached_layer, ...
         imdb.name, image_ids{i});
     X = d.feat(randperm(size(d.feat,1), min(boxes_per_image, size(d.feat,1))), :);
-    X = rcnn_pool5_to_fcX(X, layer, rcnn_model);
-
+	X = rcnn_cached_to_fcX(X, opts, rcnn_model);
+	
     ns = cat(1, ns, sqrt(sum(X.^2, 2)));
   end
 
