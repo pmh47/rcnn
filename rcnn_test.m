@@ -1,4 +1,4 @@
-function res = rcnn_test(rcnn_model, imdb, suffix)
+function [res, allBoxes, classScoreThresholds] = rcnn_test(rcnn_model, imdb, suffix, do_evaluation)
 % res = rcnn_test(rcnn_model, imdb, suffix)
 %   Compute test results using the trained rcnn_model on the
 %   image database specified by imdb. Results are saved
@@ -27,6 +27,10 @@ else
   suffix = ['_' suffix];
 end
 
+if ~exist('do_evaluation', 'var')
+	do_evaluation = 1;
+end
+
 try
   aboxes = cell(num_classes, 1);
   for i = 1:num_classes
@@ -46,7 +50,7 @@ catch
   max_per_set = ceil(100000/2500)*length(image_ids);
   max_per_image = 100;
   top_scores = cell(num_classes, 1);
-  thresh = -inf(num_classes, 1);
+  classScoreThresholds = -inf(num_classes, 1);
   box_counts = zeros(num_classes, 1);
 
   if ~isfield(rcnn_model, 'folds')
@@ -73,7 +77,7 @@ catch
       for j = 1:num_classes
         boxes = d.boxes;
         z = zs(:,j);
-        I = find(~d.gt & z > thresh(j));
+        I = find(~d.gt & z > classScoreThresholds(j));
         boxes = boxes(I,:);
         scores = z(I);
         aboxes{j}{i} = cat(2, single(boxes), single(scores));
@@ -87,17 +91,19 @@ catch
         top_scores{j} = sort(top_scores{j}, 'descend');
         if box_counts(j) > max_per_set
           top_scores{j}(max_per_set+1:end) = [];
-          thresh(j) = top_scores{j}(end);
+          classScoreThresholds(j) = top_scores{j}(end);
         end
       end
     end
   end
+  
+  allBoxes = aboxes;
 
   for i = 1:num_classes
     % go back through and prune out detections below the found threshold
     for j = 1:length(image_ids)
       if ~isempty(aboxes{i}{j})
-        I = find(aboxes{i}{j}(:,end) < thresh(i));
+        I = find(aboxes{i}{j}(:,end) < classScoreThresholds(i));
         aboxes{i}{j}(I,:) = [];
         box_inds{i}{j}(I,:) = [];
       end
@@ -111,17 +117,19 @@ catch
   end
 end
 
-% ------------------------------------------------------------------------
-% Peform AP evaluation
-% ------------------------------------------------------------------------
-for model_ind = 1:num_classes
-  cls = rcnn_model.classes{model_ind};
-  res(model_ind) = imdb.eval_func(cls, aboxes{model_ind}, imdb, suffix);
-end
+if do_evaluation
+	% ------------------------------------------------------------------------
+	% Perform AP evaluation
+	% ------------------------------------------------------------------------
+	for model_ind = 1:num_classes
+	  cls = rcnn_model.classes{model_ind};
+	  res(model_ind) = imdb.eval_func(cls, aboxes{model_ind}, imdb, suffix);
+	end
 
-fprintf('\n~~~~~~~~~~~~~~~~~~~~\n');
-fprintf('Results:\n');
-aps = [res(:).ap]';
-disp(aps);
-disp(mean(aps));
-fprintf('~~~~~~~~~~~~~~~~~~~~\n');
+	fprintf('\n~~~~~~~~~~~~~~~~~~~~\n');
+	fprintf('Results:\n');
+	aps = [res(:).ap]';
+	disp(aps);
+	disp(mean(aps));
+	fprintf('~~~~~~~~~~~~~~~~~~~~\n');
+end
