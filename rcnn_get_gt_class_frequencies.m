@@ -11,7 +11,7 @@ ip.addParamValue('cached_layer', 'pool5', @isstr);
 
 ip.parse(imdb, varargin{:});
 opts = ip.Results;
-inst
+
 % X_pos and keys_pos are indexed by elements of imdb.class_ids, so may in principal
 % be 'sparse' if imdb.class_ids is non-contiguous
 [~, keys_pos] = rcnn_get_positive_gt_features(imdb, opts.cache_name, opts.cached_layer);
