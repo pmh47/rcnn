@@ -36,7 +36,9 @@ try
   for i = 1:num_classes
     load([conf.cache_dir rcnn_model.classes{i} '_boxes_' imdb.name suffix]);
     aboxes{i} = boxes;
+	classScoreThresholds(i) = threshold;
   end
+  allBoxes = aboxes;
 catch
   aboxes = cell(num_classes, 1);
   box_inds = cell(num_classes, 1);
@@ -112,8 +114,9 @@ catch
     save_file = [conf.cache_dir rcnn_model.classes{i} '_boxes_' imdb.name suffix];
     boxes = aboxes{i};
     inds = box_inds{i};
-    save(save_file, 'boxes', 'inds');
-    clear boxes inds;
+	threshold = classScoreThresholds(i);
+    save(save_file, 'boxes', 'inds', 'threshold');
+    clear boxes inds threshold;
   end
 end
 
