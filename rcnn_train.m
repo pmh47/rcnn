@@ -45,11 +45,16 @@ ip.addParamValue('cache_name', ...
     'v1_finetune_voc_2007_trainval_iter_70000', @isstr);
 ip.addParamValue('cached_layer', 'pool5', @isstr);
 ip.addParamValue('required_class_ids', imdb.class_ids);
+ip.addParamValue('model_file_suffix', '', @isstr);
 
 ip.parse(imdb, varargin{:});
 opts = ip.Results;
 
 opts.net_def_file = './model-defs/rcnn_batch_256_output_fc7.prototxt';
+
+if ~isempty(opts.model_file_suffix) && opts.model_file_suffix(1) ~= '_'
+	opts.model_file_suffix = ['_' opts.model_file_suffix];
+end
 
 conf = rcnn_config('sub_dir', imdb.name);
 
@@ -65,12 +70,13 @@ disp(opts);
 fprintf('~~~~~~~~~~~~~~~~~~~~~~~~~~~~\n\n');
 
 % ------------------------------------------------------------------------
-% Create a new rcnn model
+% Create a new rcnn model for the required classes
 rcnn_model = rcnn_create_model(opts.net_def_file, opts.net_file, opts.cache_name);
 rcnn_model = rcnn_load_model(rcnn_model, conf.use_gpu);
 rcnn_model.detectors.crop_mode = opts.crop_mode;
 rcnn_model.detectors.crop_padding = opts.crop_padding;
-rcnn_model.classes = imdb.classes;
+rcnn_model.class_ids = opts.required_class_ids;
+rcnn_model.classes = imdb.classes(opts.required_class_ids);
 % ------------------------------------------------------------------------
 
 % ------------------------------------------------------------------------
@@ -177,12 +183,12 @@ for hard_epoch = 1:max_hard_epochs
     first_time = false;
 
     if opts.checkpoint > 0 && mod(i, opts.checkpoint) == 0
-      save([conf.cache_dir 'rcnn_model'], 'rcnn_model');
+      save([conf.cache_dir 'rcnn_model' opts.model_file_suffix], 'rcnn_model');
     end
   end
 end
 % save the final rcnn_model
-save([conf.cache_dir 'rcnn_model'], 'rcnn_model');
+save([conf.cache_dir 'rcnn_model' opts.model_file_suffix], 'rcnn_model');
 % ------------------------------------------------------------------------
 
 % ------------------------------------------------------------------------
@@ -194,7 +200,7 @@ if opts.k_folds > 0
     rcnn_k_fold_model.detectors(f).W = W{f};
     rcnn_k_fold_model.detectors(f).B = B{f};
   end
-  save([conf.cache_dir 'rcnn_k_fold_model'], 'rcnn_k_fold_model');
+  save([conf.cache_dir 'rcnn_k_fold_model' opts.model_file_suffix], 'rcnn_k_fold_model');
 else
   rcnn_k_fold_model = [];
 end
